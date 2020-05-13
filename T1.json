@@ -1,0 +1,216 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "cfn for homework",
+  "Parameters": {
+        "SourceObjectKey": {
+            "Description": "S3 source objectkey",
+            "Type": "String",
+            "Default": "function_new.zip"
+        },
+        "SourceBucket": {
+            "Description": "S3 source Bucket",
+            "Type": "String",
+            "Default": "source1.yy2979"
+        },
+
+        "endpoint":{
+          "Type": "String",
+          "Description": "The endpoint for sagemaker model",
+          "Default": "t1"
+        },
+        "sender":{
+          "Type": "String",
+          "Description": "The email address to send response from",
+          "Default": "jamesyuanyuzhang@gmail.com"
+        },
+        "storebucket":{
+          "Type": "String",
+          "Description": "The bucket to store email",
+          "Default": "store.yy2979"
+        },
+    },
+    
+  "Resources": {
+
+    "Homeworkrole":
+    {
+    "Type" : "AWS::IAM::Role",
+    "Properties" : 
+    {
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [{
+            "Effect": "Allow",
+            "Principal": {
+                "Service": [
+                    "lambda.amazonaws.com"
+                ]
+            },
+            "Action": [
+                "sts:AssumeRole"
+            ]
+              }
+          ]
+          },
+        "RoleName" : "Homeworkrole"
+    }
+    },
+
+    "Homeworkpolicy":
+    {
+    "Type": "AWS::IAM::Policy",
+    "Properties": {
+        "PolicyName": "root",
+        "PolicyDocument": {
+            "Version": "2012-10-17",
+            "Statement": [
+                {
+                    "Effect": "Allow",
+                    "Action": "*",
+                    "Resource": "*"
+                }
+            ]
+        },
+        "Roles": [
+            {
+                "Ref": "Homeworkrole"
+            }
+        ]
+      }
+    },
+
+    "lambda": {
+         "Type": "AWS::Lambda::Function",
+         "Properties": {
+            "Code": {   
+               "S3Bucket": {
+                  "Ref": "SourceBucket"
+               },
+               "S3Key": { "Ref" : "SourceObjectKey" }
+            },
+
+            "FunctionName": "LF4",
+            "Handler": "lambda_function.lambda_handler",
+            "Role": {
+            "Fn::GetAtt": [
+                "Homeworkrole",
+                "Arn"
+            ]
+            },
+            "Runtime": "python3.7",
+            "MemorySize": 512,
+            "Timeout": 300,
+            "Environment": {
+              "Variables": {
+              "REGION": "us-east-1",
+              "endpoint": {"Ref": "endpoint"},
+              "sender": {"Ref": "sender"}
+                }
+              },
+         }
+      },
+
+    "lambdaInvokePermission": {
+         "Type": "AWS::Lambda::Permission",
+         "DependsOn": "lambda",
+         "Properties": {
+            "FunctionName": {
+               "Fn::GetAtt": [
+                  "lambda",
+                  "Arn"
+               ]
+            },
+            "Action": "lambda:InvokeFunction",
+            "Principal": "s3.amazonaws.com",
+      }},
+
+    "S3Bucket": {
+      "Type": "AWS::S3::Bucket",
+      "DependsOn": "lambdaInvokePermission",
+      "Properties": {
+        "BucketName": {"Ref":"storebucket"},
+        "NotificationConfiguration":
+        {
+          "LambdaConfigurations":
+          [
+            {
+              "Event": "s3:ObjectCreated:*",
+              "Function": {
+              "Fn::GetAtt": [
+                "lambda",
+                "Arn"
+            ]
+          },
+            }
+          ]
+        }
+      },
+      },
+
+
+    "BucketPolicy": {
+        "Type": "AWS::S3::BucketPolicy",
+        "Properties": {
+            "PolicyDocument": {
+                "Id": "seswritepolicy",
+                "Version": "2012-10-17",
+                "Statement": [
+                    {
+                        "Sid": "AllowSESPuts",
+                        "Effect": "Allow",
+                        "Principal": "*",
+                        "Action": "s3:PutObject",
+                        "Resource": {
+                            "Fn::Join": [
+                                "",
+                                [
+                                    "arn:aws:s3:::",
+                                    {
+                                        "Ref": "S3Bucket"
+                                    },
+                                    "/*"
+                                ]
+                            ]
+                        },
+                    }
+                ]
+            },
+            "Bucket": {
+                "Ref": "S3Bucket"
+            }
+        }
+    },
+
+
+
+      "ruleset":
+      {
+        "Type" : "AWS::SES::ReceiptRuleSet",
+        "Properties" : {
+            "RuleSetName" : "ruleset1"
+          }
+      },
+
+      "rule":
+      {
+        "Type" : "AWS::SES::ReceiptRule",
+        "Properties" : {
+            "Rule" : 
+            {
+              "Name":"rule1",
+              "Enabled":true,
+              "ScanEnabled": false,
+              "Actions":[
+              {
+                "S3Action":
+                {
+                  "BucketName": {"Ref":"S3Bucket"}
+                }
+              }]
+            },
+            "RuleSetName" : {"Ref": "ruleset"}
+      }
+}
+ 
+  }
+}
